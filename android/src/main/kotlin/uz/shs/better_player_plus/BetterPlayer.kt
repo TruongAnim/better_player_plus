@@ -392,7 +392,8 @@ internal class BetterPlayer(
             if (lastPathSegment == null) {
                 lastPathSegment = ""
             }
-            type = Util.inferContentTypeForExtension(lastPathSegment)
+            val fileExt = lastPathSegment.substringAfterLast('.', "")
+            type = Util.inferContentTypeForExtension(fileExt)
         } else {
             type = when (formatHint) {
                 FORMAT_SS -> C.CONTENT_TYPE_SS
