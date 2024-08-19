@@ -700,7 +700,7 @@ class VideoProgressColors {
   /// [backgroundColor] defaults to gray at 50% opacity. This is the background
   /// color behind both [playedColor] and [bufferedColor] to denote the total
   /// size of the video compared to either of those values.
-  VideoProgressColors({
+  const VideoProgressColors({
     this.playedColor = const Color.fromRGBO(255, 0, 0, 0.7),
     this.bufferedColor = const Color.fromRGBO(50, 50, 200, 0.2),
     this.backgroundColor = const Color.fromRGBO(200, 200, 200, 0.5),
