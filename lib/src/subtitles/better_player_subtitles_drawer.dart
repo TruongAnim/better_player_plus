@@ -94,9 +94,7 @@ class _BetterPlayerSubtitlesDrawerState
   Widget build(BuildContext context) {
     final BetterPlayerSubtitle? subtitle = _getSubtitleAtCurrentPosition();
     widget.betterPlayerController.renderedSubtitle = subtitle;
-    final List<String> subtitles = subtitle?.texts ?? [];
-    final List<Widget> textWidgets =
-        subtitles.map((text) => _buildSubtitleTextWidget(text)).toList();
+    final text = subtitle?.text ?? '';
 
     return Container(
       height: double.infinity,
@@ -110,7 +108,9 @@ class _BetterPlayerSubtitlesDrawerState
             right: _configuration!.rightPadding),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.end,
-          children: textWidgets,
+          children: [
+            _buildSubtitleTextWidget(text),
+          ],
         ),
       ),
     );

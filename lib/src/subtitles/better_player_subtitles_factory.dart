@@ -80,31 +80,44 @@ class BetterPlayerSubtitlesFactory {
   }
 
   static List<BetterPlayerSubtitle> _parseString(String value) {
-    List<String> components = value.split('\r\n\r\n');
-    if (components.length == 1) {
-      components = value.split('\n\n');
-    }
-
-    // Skip parsing files with no cues
-    if (components.length == 1) {
-      return [];
-    }
-
     final List<BetterPlayerSubtitle> subtitlesObj = [];
 
-    final bool isWebVTT = components.contains("WEBVTT");
-    for (final component in components) {
-      if (component.isEmpty) {
+    for (final component in _readSubFile(value)) {
+      if (component.length < 2) {
         continue;
       }
-      final subtitle = BetterPlayerSubtitle(component, isWebVTT);
+
+      final subtitle = BetterPlayerSubtitle(component.join('\n'));
       if (subtitle.start != null &&
           subtitle.end != null &&
-          subtitle.texts != null) {
+          subtitle.text != null) {
         subtitlesObj.add(subtitle);
       }
     }
 
     return subtitlesObj;
+  }
+
+  static List<List<String>> _readSubFile(String file) {
+    final List<String> lines = LineSplitter.split(file).toList();
+
+    final List<List<String>> captionStrings = <List<String>>[];
+    List<String> currentCaption = <String>[];
+    int lineIndex = 0;
+    for (final String line in lines) {
+      final bool isLineBlank = line.trim().isEmpty;
+      if (!isLineBlank) {
+        currentCaption.add(line);
+      }
+
+      if (isLineBlank || lineIndex == lines.length - 1) {
+        captionStrings.add(currentCaption);
+        currentCaption = <String>[];
+      }
+
+      lineIndex += 1;
+    }
+
+    return captionStrings;
   }
 }
