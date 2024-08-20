@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 ///Configuration of subtitles - colors/padding/font. Used in
 ///BetterPlayerConfiguration.
 class BetterPlayerSubtitlesConfiguration {
+  ///Flag used to show/hide subtitle
+  final bool showSubtitles;
+
   ///Subtitle font size
   final double fontSize;
 
@@ -38,6 +41,7 @@ class BetterPlayerSubtitlesConfiguration {
   final Color backgroundColor;
 
   const BetterPlayerSubtitlesConfiguration({
+    this.showSubtitles = true,
     this.fontSize = 14,
     this.fontColor = Colors.white,
     this.outlineEnabled = true,

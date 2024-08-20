@@ -94,8 +94,11 @@ class _BetterPlayerSubtitlesDrawerState
   Widget build(BuildContext context) {
     final BetterPlayerSubtitle? subtitle = _getSubtitleAtCurrentPosition();
     widget.betterPlayerController.renderedSubtitle = subtitle;
-    final text = subtitle?.text ?? '';
+    if (_configuration?.showSubtitles == false) {
+      return SizedBox.shrink();
+    }
 
+    final text = subtitle?.text ?? '';
     return Container(
       height: double.infinity,
       width: double.infinity,
