@@ -527,7 +527,9 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
   /// and silently clamped.
   Future<void> seekTo(Duration? position) async {
     // _timer?.cancel();
-
+    if (_isDisposed) {
+      return;
+    }
     Duration positionToSeek = position ?? Duration.zero;
     final duration = value.duration!;
     if (position! > duration) {
