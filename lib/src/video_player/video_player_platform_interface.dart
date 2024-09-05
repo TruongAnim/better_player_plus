@@ -379,6 +379,7 @@ class VideoEvent {
     this.size,
     this.buffered,
     this.position,
+    this.isPlaying,
   });
 
   /// The type of the event.
@@ -407,6 +408,11 @@ class VideoEvent {
   ///Seek position
   final Duration? position;
 
+  /// Whether the video is currently playing.
+  ///
+  /// Only used if [eventType] is [VideoEventType.isPlayingStateUpdate].
+  final bool? isPlaying;
+
   @override
   bool operator ==(Object other) {
     return identical(this, other) ||
@@ -416,7 +422,8 @@ class VideoEvent {
             eventType == other.eventType &&
             duration == other.duration &&
             size == other.size &&
-            listEquals(buffered, other.buffered);
+            listEquals(buffered, other.buffered) &&
+            isPlaying == other.isPlaying;
   }
 
   @override
@@ -424,7 +431,8 @@ class VideoEvent {
       eventType.hashCode ^
       duration.hashCode ^
       size.hashCode ^
-      buffered.hashCode;
+      buffered.hashCode ^
+      isPlaying.hashCode;
 }
 
 /// Type of the event.
@@ -452,6 +460,12 @@ enum VideoEventType {
 
   /// The video is set to pause
   pause,
+
+  /// The playback state of the video has changed.
+  ///
+  /// This event is fired when the video starts or pauses due to user actions or
+  /// phone calls, or other app media such as music players.
+  isPlayingStateUpdate,
 
   /// The video is set to given to position
   seek,

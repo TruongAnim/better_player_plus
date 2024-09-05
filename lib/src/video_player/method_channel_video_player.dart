@@ -217,7 +217,12 @@ class MethodChannelVideoPlayer extends VideoPlayerPlatform {
         ) ??
         0;
 
-    if (milliseconds <= 0) return null;
+    // Sometimes the media server returns a absolute position far greater than
+    // the datetime instance can handle. This caps the value to the maximum the datetime
+    // can use.
+    if (milliseconds > 8640000000000000 || milliseconds <= 0) {
+      return null;
+    }
 
     return DateTime.fromMillisecondsSinceEpoch(milliseconds);
   }
@@ -388,6 +393,13 @@ class MethodChannelVideoPlayer extends VideoPlayerPlatform {
           return VideoEvent(
             eventType: VideoEventType.pause,
             key: key,
+          );
+
+        case 'isPlayingStateUpdate':
+          return VideoEvent(
+            eventType: VideoEventType.isPlayingStateUpdate,
+            key: key,
+            isPlaying: map['isPlaying'] as bool,
           );
 
         case 'seek':

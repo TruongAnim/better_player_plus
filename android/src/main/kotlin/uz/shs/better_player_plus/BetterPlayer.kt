@@ -510,6 +510,14 @@ internal class BetterPlayer(
             override fun onPlayerError(error: PlaybackException) {
                 eventSink.error("VideoError", "Video player had error $error", "")
             }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                val event: MutableMap<String, Any?> = HashMap()
+                event["event"] = "isPlayingStateUpdate"
+                event["key"] = key
+                event["isPlaying"] = isPlaying
+                eventSink.success(event)
+            }
         })
         val reply: MutableMap<String, Any> = HashMap()
         reply["textureId"] = textureEntry.id()

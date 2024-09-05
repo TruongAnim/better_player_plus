@@ -243,6 +243,9 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
         case VideoEventType.pause:
           pause();
           break;
+        case VideoEventType.isPlayingStateUpdate:
+          value = value.copyWith(isPlaying: event.isPlaying);
+          break;
         case VideoEventType.seek:
           seekTo(event.position);
           break;
@@ -459,9 +462,9 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
     if (!_created || _isDisposed) {
       return;
     }
-    _timer?.cancel();
     if (value.isPlaying) {
       await _videoPlayerPlatform.play(_textureId);
+      _timer?.cancel();
       _timer = Timer.periodic(
         const Duration(milliseconds: 300),
         (Timer timer) async {
@@ -486,6 +489,7 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
       );
     } else {
       await _videoPlayerPlatform.pause(_textureId);
+      _timer?.cancel();
     }
   }
 
@@ -526,15 +530,14 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
   /// If [moment] is outside of the video's full range it will be automatically
   /// and silently clamped.
   Future<void> seekTo(Duration? position) async {
-    // _timer?.cancel();
-    if (_isDisposed) {
+    final duration = value.duration;
+    if (_isDisposed || duration == null) {
       return;
     }
     Duration positionToSeek = position ?? Duration.zero;
-    final duration = value.duration!;
-    if (position! > duration) {
+    if (positionToSeek > duration) {
       positionToSeek = duration;
-    } else if (position < Duration.zero) {
+    } else if (positionToSeek < Duration.zero) {
       positionToSeek = Duration.zero;
     }
     _seekPosition = positionToSeek;

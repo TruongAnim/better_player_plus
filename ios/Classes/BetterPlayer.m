@@ -9,6 +9,7 @@ static void* timeRangeContext = &timeRangeContext;
 static void* statusContext = &statusContext;
 static void* playbackLikelyToKeepUpContext = &playbackLikelyToKeepUpContext;
 static void* presentationSizeContext = &presentationSizeContext;
+static void *rateContext = &rateContext;
 
 
 #if TARGET_OS_IOS
@@ -42,7 +43,7 @@ AVPictureInPictureController *_pipController;
 
 - (void)addObservers:(AVPlayerItem*)item {
     if (!self._observersAdded){
-        [_player addObserver:self forKeyPath:@"rate" options:0 context:nil];
+        [_player addObserver:self forKeyPath:@"rate" options:0 context:rateContext];
         [item addObserver:self forKeyPath:@"loadedTimeRanges" options:0 context:timeRangeContext];
         [item addObserver:self forKeyPath:@"status" options:0 context:statusContext];
         [item addObserver:self forKeyPath:@"presentationSize" options:0 context:presentationSizeContext];
@@ -67,19 +68,33 @@ AVPictureInPictureController *_pipController;
     if (_player.currentItem == nil) {
         return;
     }
-
+    
     if (_player.currentItem == nil) {
         return;
     }
-
+    
     [self removeObservers];
     AVAsset* asset = [_player.currentItem asset];
     [asset cancelLoading];
 }
 
+- (CALayer *)flutterViewLayer {
+#if TARGET_OS_OSX
+    return self.registrar.view.layer;
+#else
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    // TODO(hellohuanlin): Provide a non-deprecated codepath. See
+    // https://github.com/flutter/flutter/issues/104117
+    UIViewController *root = UIApplication.sharedApplication.keyWindow.rootViewController;
+#pragma clang diagnostic pop
+    return root.view.layer;
+#endif
+}
+
 - (void) removeObservers{
     if (self._observersAdded){
-        [_player removeObserver:self forKeyPath:@"rate" context:nil];
+        [_player removeObserver:self forKeyPath:@"rate" context:rateContext];
         [[_player currentItem] removeObserver:self forKeyPath:@"status" context:statusContext];
         [[_player currentItem] removeObserver:self forKeyPath:@"presentationSize" context:presentationSizeContext];
         [[_player currentItem] removeObserver:self
@@ -101,7 +116,7 @@ AVPictureInPictureController *_pipController;
         if (_eventSink) {
             _eventSink(@{@"event" : @"completed", @"key" : _key});
             [ self removeObservers];
-
+            
         }
     }
 }
@@ -117,6 +132,62 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
     // Output degrees in between [0, 360[
     return degrees;
 };
+
+- (AVMutableVideoComposition*)getVideoCompositionWithTransform:(CGAffineTransform)transform
+                                                     withAsset:(AVAsset*)asset
+                                                withVideoTrack:(AVAssetTrack*)videoTrack {
+    AVMutableVideoCompositionInstruction* instruction =
+    [AVMutableVideoCompositionInstruction videoCompositionInstruction];
+    instruction.timeRange = CMTimeRangeMake(kCMTimeZero, [asset duration]);
+    AVMutableVideoCompositionLayerInstruction* layerInstruction =
+    [AVMutableVideoCompositionLayerInstruction
+     videoCompositionLayerInstructionWithAssetTrack:videoTrack];
+    [layerInstruction setTransform:_preferredTransform atTime:kCMTimeZero];
+    
+    AVMutableVideoComposition* videoComposition = [AVMutableVideoComposition videoComposition];
+    instruction.layerInstructions = @[ layerInstruction ];
+    videoComposition.instructions = @[ instruction ];
+    
+    // If in portrait mode, switch the width and height of the video
+    CGFloat width = videoTrack.naturalSize.width;
+    CGFloat height = videoTrack.naturalSize.height;
+    NSInteger rotationDegrees =
+    (NSInteger)round(radiansToDegrees(atan2(_preferredTransform.b, _preferredTransform.a)));
+    if (rotationDegrees == 90 || rotationDegrees == 270) {
+        width = videoTrack.naturalSize.height;
+        height = videoTrack.naturalSize.width;
+    }
+    videoComposition.renderSize = CGSizeMake(width, height);
+    
+    float nominalFrameRate = videoTrack.nominalFrameRate;
+    int fps = 30;
+    if (nominalFrameRate > 0) {
+        fps = (int) ceil(nominalFrameRate);
+    }
+    videoComposition.frameDuration = CMTimeMake(1, fps);
+    
+    return videoComposition;
+}
+
+- (CGAffineTransform)fixTransform:(AVAssetTrack*)videoTrack {
+    CGAffineTransform transform = videoTrack.preferredTransform;
+    // TODO(@recastrodiaz): why do we need to do this? Why is the preferredTransform incorrect?
+    // At least 2 user videos show a black screen when in portrait mode if we directly use the
+    // videoTrack.preferredTransform Setting tx to the height of the video instead of 0, properly
+    // displays the video https://github.com/flutter/flutter/issues/17606#issuecomment-413473181
+    NSInteger rotationDegrees = (NSInteger)round(radiansToDegrees(atan2(transform.b, transform.a)));
+    if (rotationDegrees == 90) {
+        transform.tx = videoTrack.naturalSize.height;
+        transform.ty = 0;
+    } else if (rotationDegrees == 180) {
+        transform.tx = videoTrack.naturalSize.width;
+        transform.ty = videoTrack.naturalSize.height;
+    } else if (rotationDegrees == 270) {
+        transform.tx = 0;
+        transform.ty = videoTrack.naturalSize.width;
+    }
+    return transform;
+}
 
 - (void)setDataSourceAsset:(NSString*)asset withKey:(NSString*)key withCertificateUrl:(NSString*)certificateUrl withLicenseUrl:(NSString*)licenseUrl cacheKey:(NSString*)cacheKey cacheManager:(CacheManager*)cacheManager overriddenDuration:(int) overriddenDuration{
     NSString* path = [[NSBundle mainBundle] pathForResource:asset ofType:nil];
@@ -152,7 +223,7 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
         }
         item = [AVPlayerItem playerItemWithAsset:asset];
     }
-
+    
     if (@available(iOS 10.0, *) && overriddenDuration > 0) {
         _overriddenDuration = overriddenDuration;
     }
@@ -165,6 +236,45 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
     _isStalledCheckStarted = false;
     _playerRate = 1;
     [_player replaceCurrentItemWithPlayerItem:item];
+    
+    AVAsset* asset = [item asset];
+    void (^assetCompletionHandler)(void) = ^{
+        if ([asset statusOfValueForKey:@"tracks" error:nil] == AVKeyValueStatusLoaded) {
+            NSArray* tracks = [asset tracksWithMediaType:AVMediaTypeVideo];
+            if ([tracks count] > 0) {
+                AVAssetTrack* videoTrack = tracks[0];
+                void (^trackCompletionHandler)(void) = ^{
+                    if (self->_disposed) return;
+                    if ([videoTrack statusOfValueForKey:@"preferredTransform"
+                                                  error:nil] == AVKeyValueStatusLoaded) {
+                        // Rotate the video by using a videoComposition and the preferredTransform
+                        self->_preferredTransform = [self fixTransform:videoTrack];
+                        // Note:
+                        // https://developer.apple.com/documentation/avfoundation/avplayeritem/1388818-videocomposition
+                        // Video composition can only be used with file-based media and is not supported for
+                        // use with media served using HTTP Live Streaming.
+                        AVMutableVideoComposition* videoComposition =
+                        [self getVideoCompositionWithTransform:self->_preferredTransform
+                                                     withAsset:asset
+                                                withVideoTrack:videoTrack];
+                        item.videoComposition = videoComposition;
+                    }
+                };
+                [videoTrack loadValuesAsynchronouslyForKeys:@[ @"preferredTransform" ]
+                                          completionHandler:trackCompletionHandler];
+            }
+        }
+    };
+    
+    // This is to fix 2 bugs: 1. blank video for encrypted video streams on iOS 16
+    // (https://github.com/flutter/flutter/issues/111457) and 2. swapped width and height for some
+    // video streams (not just iOS 16).  (https://github.com/flutter/flutter/issues/109116). An
+    // invisible AVPlayerLayer is used to overwrite the protection of pixel buffers in those streams
+    // for issue #1, and restore the correct width and height for issue #2.
+    self._playerLayer = [AVPlayerLayer playerLayerWithPlayer:_player];
+    [self.flutterViewLayer addSublayer:self._playerLayer];
+    
+    [asset loadValuesAsynchronouslyForKeys:@[ @"tracks" ] completionHandler:assetCompletionHandler];
     [self addObservers:item];
 }
 
@@ -172,7 +282,7 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
     if (_isStalledCheckStarted){
         return;
     }
-   _isStalledCheckStarted = true;
+    _isStalledCheckStarted = true;
     [self startStalledCheck];
 }
 
@@ -185,14 +295,14 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
         if (_stalledCount > 60){
             if (_eventSink != nil) {
                 _eventSink([FlutterError
-                        errorWithCode:@"VideoError"
-                        message:@"Failed to load video: playback stalled"
-                        details:nil]);
+                            errorWithCode:@"VideoError"
+                            message:@"Failed to load video: playback stalled"
+                            details:nil]);
             }
             return;
         }
         [self performSelector:@selector(startStalledCheck) withObject:nil afterDelay:1];
-
+        
     }
 }
 
@@ -208,38 +318,38 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
     } else {
         return 0;
     }
-
+    
 }
 
 - (void)observeValueForKeyPath:(NSString*)path
                       ofObject:(id)object
                         change:(NSDictionary*)change
                        context:(void*)context {
-
+    
     if ([path isEqualToString:@"rate"]) {
         if (@available(iOS 10.0, *)) {
             if (_pipController.pictureInPictureActive == true){
                 if (_lastAvPlayerTimeControlStatus != [NSNull null] && _lastAvPlayerTimeControlStatus == _player.timeControlStatus){
                     return;
                 }
-
+                
                 if (_player.timeControlStatus == AVPlayerTimeControlStatusPaused){
                     _lastAvPlayerTimeControlStatus = _player.timeControlStatus;
                     if (_eventSink != nil) {
-                      _eventSink(@{@"event" : @"pause"});
+                        _eventSink(@{@"event" : @"pause"});
                     }
                     return;
-
+                    
                 }
                 if (_player.timeControlStatus == AVPlayerTimeControlStatusPlaying){
                     _lastAvPlayerTimeControlStatus = _player.timeControlStatus;
                     if (_eventSink != nil) {
-                      _eventSink(@{@"event" : @"play"});
+                        _eventSink(@{@"event" : @"play"});
                     }
                 }
             }
         }
-
+        
         if (_player.rate == 0 && //if player rate dropped to 0
             CMTIME_COMPARE_INLINE(_player.currentItem.currentTime, >, kCMTimeZero) && //if video was started
             CMTIME_COMPARE_INLINE(_player.currentItem.currentTime, <, _player.currentItem.duration) && //but not yet finished
@@ -261,7 +371,7 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
                         end = endTime;
                     }
                 }
-
+                
                 [values addObject:@[ @(start), @(end) ]];
             }
             _eventSink(@{@"event" : @"bufferingUpdate", @"values" : values, @"key" : _key});
@@ -270,14 +380,14 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
     else if (context == presentationSizeContext){
         [self onReadyToPlay];
     }
-
+    
     else if (context == statusContext) {
         AVPlayerItem* item = (AVPlayerItem*)object;
         switch (item.status) {
             case AVPlayerItemStatusFailed:
                 NSLog(@"Failed to load video:");
                 NSLog(item.error.debugDescription);
-
+                
                 if (_eventSink != nil) {
                     _eventSink([FlutterError
                                 errorWithCode:@"VideoError"
@@ -303,6 +413,12 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
                 _eventSink(@{@"event" : @"bufferingStart", @"key" : _key});
             }
         }
+    } else if (context == rateContext) {
+        AVPlayer *player = (AVPlayer *)object;
+        _isPlaying = player.rate > 0;
+        if (_eventSink != nil) {
+            _eventSink(@{@"event" : @"isPlayingStateUpdate", @"isPlaying" : _isPlaying ? @YES : @NO, @"key" : _key});
+        }
     }
 }
 
@@ -313,7 +429,7 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
     if (!self._observersAdded){
         [self addObservers:[_player currentItem]];
     }
-
+    
     if (_isPlaying) {
         if (@available(iOS 10.0, *)) {
             [_player playImmediatelyAtRate:1.0];
@@ -335,15 +451,15 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
         if (_player.currentItem.status != AVPlayerStatusReadyToPlay || _player.status != AVPlayerStatusReadyToPlay) {
             return;
         }
-
+        
         CGSize size = [_player currentItem].presentationSize;
         CGFloat width = size.width;
         CGFloat height = size.height;
-
-
+        
+        
         AVAsset *asset = _player.currentItem.asset;
         bool onlyAudio =  [[asset tracksWithMediaType:AVMediaTypeVideo] count] == 0;
-
+        
         // The player has not yet initialized.
         if (!onlyAudio && height == CGSizeZero.height && width == CGSizeZero.width) {
             return;
@@ -353,18 +469,18 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
         if (isLive == false && [self duration] == 0) {
             return;
         }
-
+        
         //Fix from https://github.com/flutter/flutter/issues/66413
         AVPlayerItemTrack *track = [self.player currentItem].tracks.firstObject;
         CGSize naturalSize = track.assetTrack.naturalSize;
         CGAffineTransform prefTrans = track.assetTrack.preferredTransform;
         CGSize realSize = CGSizeApplyAffineTransform(naturalSize, prefTrans);
-
+        
         int64_t duration = [BetterPlayerTimeUtils FLTCMTimeToMillis:(_player.currentItem.asset.duration)];
         if (_overriddenDuration > 0 && duration > _overriddenDuration){
             _player.currentItem.forwardPlaybackEndTime = CMTimeMake(_overriddenDuration/1000, 1);
         }
-
+        
         _isInitialized = true;
         [self updatePlayingState];
         _eventSink(@{
@@ -407,20 +523,27 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
     if (!CMTIME_IS_INVALID(_player.currentItem.forwardPlaybackEndTime)) {
         time = [[_player currentItem] forwardPlaybackEndTime];
     }
-
+    
     return [BetterPlayerTimeUtils FLTCMTimeToMillis:(time)];
 }
 
-- (void)seekTo:(int)location {
+- (void)seekTo:(int64_t)location {
     ///When player is playing, pause video, seek to new position and start again. This will prevent issues with seekbar jumps.
     bool wasPlaying = _isPlaying;
     if (wasPlaying){
         [_player pause];
     }
-
-    [_player seekToTime:CMTimeMake(location, 1000)
-        toleranceBefore:kCMTimeZero
-         toleranceAfter:kCMTimeZero
+    
+    CMTime targetCMTime = CMTimeMake(location, 1000);
+    CMTimeValue duration = _player.currentItem.asset.duration.value;
+    // Without adding tolerance when seeking to duration,
+    // seekToTime will never complete, and this call will hang.
+    // see issue https://github.com/flutter/flutter/issues/124475.
+    CMTime tolerance = location == duration ? CMTimeMake(1, 1000) : kCMTimeZero;
+    
+    [_player seekToTime:targetCMTime
+        toleranceBefore:tolerance
+         toleranceAfter:tolerance
       completionHandler:^(BOOL finished){
         if (wasPlaying){
             _player.rate = _playerRate;
@@ -455,7 +578,7 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
                                        details:nil]);
         }
     }
-
+    
     if (_isPlaying){
         if (@available(iOS 16, *)) {
             _player.defaultRate = speed;
@@ -568,15 +691,15 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
 }
 
 - (void)pictureInPictureControllerWillStopPictureInPicture:(AVPictureInPictureController *)pictureInPictureController  API_AVAILABLE(ios(9.0)){
-
+    
 }
 
 - (void)pictureInPictureControllerWillStartPictureInPicture:(AVPictureInPictureController *)pictureInPictureController {
-
+    
 }
 
 - (void)pictureInPictureController:(AVPictureInPictureController *)pictureInPictureController failedToStartPictureInPictureWithError:(NSError *)error {
-
+    
 }
 
 - (void)pictureInPictureController:(AVPictureInPictureController *)pictureInPictureController restoreUserInterfaceForPictureInPictureStopWithCompletionHandler:(void (^)(BOOL))completionHandler {
@@ -586,8 +709,8 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
 - (void) setAudioTrack:(NSString*) name index:(int) index{
     AVMediaSelectionGroup *audioSelectionGroup = [[[_player currentItem] asset] mediaSelectionGroupForMediaCharacteristic: AVMediaCharacteristicAudible];
     NSArray* options = audioSelectionGroup.options;
-
-
+    
+    
     for (int audioTrackIndex = 0; audioTrackIndex < [options count]; audioTrackIndex++) {
         AVMediaSelectionOption* option = [options objectAtIndex:audioTrackIndex];
         NSArray *metaDatas = [AVMetadataItem metadataItemsFromArray:option.commonMetadata withKey:@"title" keySpace:@"comn"];
@@ -597,19 +720,19 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
                 [[_player currentItem] selectMediaOption:option inMediaSelectionGroup: audioSelectionGroup];
             }
         }
-
+        
     }
-
+    
 }
 
 - (void)setMixWithOthers:(bool)mixWithOthers {
-  if (mixWithOthers) {
-    [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback
-                                     withOptions:AVAudioSessionCategoryOptionMixWithOthers
-                                           error:nil];
-  } else {
-    [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:nil];
-  }
+    if (mixWithOthers) {
+        [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback
+                                         withOptions:AVAudioSessionCategoryOptionMixWithOthers
+                                               error:nil];
+    } else {
+        [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:nil];
+    }
 }
 
 

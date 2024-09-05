@@ -282,10 +282,7 @@ class BetterPlayerController {
 
     if (defaultSubtitle == null) return;
 
-    ///Setup subtitles (none is default)
-    setupSubtitleSource(
-        defaultSubtitle ?? _betterPlayerSubtitlesSourceList.last,
-        sourceInitialize: true);
+    setupSubtitleSource(defaultSubtitle, sourceInitialize: true);
   }
 
   ///Check if given [betterPlayerDataSource] is HLS / DASH-type data source.
