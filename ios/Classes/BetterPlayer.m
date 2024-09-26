@@ -169,26 +169,6 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
     return videoComposition;
 }
 
-- (CGAffineTransform)fixTransform:(AVAssetTrack*)videoTrack {
-    CGAffineTransform transform = videoTrack.preferredTransform;
-    // TODO(@recastrodiaz): why do we need to do this? Why is the preferredTransform incorrect?
-    // At least 2 user videos show a black screen when in portrait mode if we directly use the
-    // videoTrack.preferredTransform Setting tx to the height of the video instead of 0, properly
-    // displays the video https://github.com/flutter/flutter/issues/17606#issuecomment-413473181
-    NSInteger rotationDegrees = (NSInteger)round(radiansToDegrees(atan2(transform.b, transform.a)));
-    if (rotationDegrees == 90) {
-        transform.tx = videoTrack.naturalSize.height;
-        transform.ty = 0;
-    } else if (rotationDegrees == 180) {
-        transform.tx = videoTrack.naturalSize.width;
-        transform.ty = videoTrack.naturalSize.height;
-    } else if (rotationDegrees == 270) {
-        transform.tx = 0;
-        transform.ty = videoTrack.naturalSize.width;
-    }
-    return transform;
-}
-
 - (void)setDataSourceAsset:(NSString*)asset withKey:(NSString*)key withCertificateUrl:(NSString*)certificateUrl withLicenseUrl:(NSString*)licenseUrl cacheKey:(NSString*)cacheKey cacheManager:(CacheManager*)cacheManager overriddenDuration:(int) overriddenDuration{
     NSString* path = [[NSBundle mainBundle] pathForResource:asset ofType:nil];
     return [self setDataSourceURL:[NSURL fileURLWithPath:path] withKey:key withCertificateUrl:certificateUrl withLicenseUrl:(NSString*)licenseUrl withHeaders: @{} withCache: false cacheKey:cacheKey cacheManager:cacheManager overriddenDuration:overriddenDuration videoExtension: nil];
@@ -248,7 +228,7 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
                     if ([videoTrack statusOfValueForKey:@"preferredTransform"
                                                   error:nil] == AVKeyValueStatusLoaded) {
                         // Rotate the video by using a videoComposition and the preferredTransform
-                        self->_preferredTransform = [self fixTransform:videoTrack];
+                        self->_preferredTransform = FVPGetStandardizedTransformForTrack(videoTrack);
                         // Note:
                         // https://developer.apple.com/documentation/avfoundation/avplayeritem/1388818-videocomposition
                         // Video composition can only be used with file-based media and is not supported for
@@ -431,13 +411,8 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
     }
     
     if (_isPlaying) {
-        if (@available(iOS 10.0, *)) {
-            [_player playImmediatelyAtRate:1.0];
-            _player.rate = _playerRate;
-        } else {
-            [_player play];
-            _player.rate = _playerRate;
-        }
+        [_player play];
+        _player.rate = _playerRate;
     } else {
         [_player pause];
     }

@@ -10,6 +10,7 @@
 #import "BetterPlayerTimeUtils.h"
 #import "BetterPlayerView.h"
 #import "BetterPlayerEzDrmAssetsLoaderDelegate.h"
+#import "AVAssetTrackUtils.h"
 
 NS_ASSUME_NONNULL_BEGIN
 

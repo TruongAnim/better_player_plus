@@ -7,6 +7,7 @@
 #import <AVKit/AVKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <GLKit/GLKit.h>
+#import "AVAssetTrackUtils.h"
 #import "BetterPlayerTimeUtils.h"
 #import "BetterPlayer.h"
 #import <MediaPlayer/MediaPlayer.h>
